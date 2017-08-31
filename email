@@ -1,0 +1,64 @@
+Regarding your question - here's the R code below. I've put in a few additional explanations in CAPS. I have a separate R run that extracts the data from the main database and creates what I referred to as "pivot tables" of the data. So all the information from the main database is captured, but in a summarized form. For doing that I use the DPLYR package - its great and far better than anything you can do in native R. Let me know if you'd like to see that too.
+
+The code below generated and tested the model after reading in the summarized data (read statement shown below). There's really not many critical lines. Note that the field names (eg Duration_12_49 – my summarized Duration) are stored in the CSV file that gets read in, so they are automatically setup and not defined below. 
+
+I’d be happy to discuss if that would help.
+
+Hope you enjoy the remainder of the conference and have smooth travels back.
+
+Regards
+Mervyn
+
+
+
+
+rm(list = ls())  ! HANDY LINE TO CLEAN UP THE VARIABLE ENVIRONMENT. DON’T RUN THIS EACH TIME – JUST KEEP IT AVAILABLE. 
+
+
+library(rpart.plot)
+library(rpart)
+library(tree)
+
+gltdWithMaternity=read.csv("C:/Users/mkopinsky/Documents/R/GLTD/Model1_21_D_1_Out.csv")      #MAIN READ STATEMENT. NOTE – I FOUND R IS UNSTABLE IF YOU DON’T INCLUDE THE ENTIRE PATH IN READ AND WRITE STATEMENTS, SO I JUST DO THAT AS A MATTER OF COURSE AND DON’T RELY ON THE CURRENT FOLDER 
+gltdWithMaternity$Actual_Recovery_Rate<-gltdWithMaternity$Actual_Recoveries / gltdWithMaternity$Exposures    
+
+maternityYN<-as.logical(ifelse(gltdWithMaternity$Disability_Category=="Maternity",0,1))    #SETUP VECTOR TO CAPTURE WHICH ARE THE MATERNITY RECORDS
+gltd<-gltdWithMaternity[maternityYN,]  # Exclude Maternity records
+
+attach (gltd)   #CAUTION USING THIS!! EASY TO GET MESSED UP. ELIMINATES NEED TO KEEP SAYING GLTD$ IN FRONT OF FIELD NAMES, BUT R CAN GET CONFUSED. I DON’T THINK ITS NEEDED BELOW ANYMORE . . . 
+
+###############################################################
+# Select Training Data on 70% of data
+set.seed(1)
+Train<-sample(nrow(gltd),floor(0.7* nrow(gltd)),replace=FALSE) #Setup vector with random #'s representing 70% of gltd data
+gltdTrain<-gltd[Train,]
+gltdTest <-gltd[-Train,]
+
+
+rpart.fit<-rpart(Actual_Recovery_Rate ~Disability_Category+AgeBand+Duration_12_49+OwnOccToAnyTransition_MOD+Integration_with_STD+Gender+Gross_Indexed_Benefit_Amount,
+                  data=gltdTrain,maxdepth=15,minsplit=100,cp=0.00001,weights = gltdTrain$Exposures,method="anova")
+
+
+# WRITE OUTPUT TO FILE
+sink(file="C:/Users/mkopinsky/Documents/r/gltd/Model1_21_D_1_ROut.txt")
+rpart.fit
+print(" ")
+summary(rpart.fit)
+rpart.plot(rpart.fit,extra=100,cex=0.5,type=4,branch=0,fallen.leaves=FALSE,tweak=0.6,space=0,compress=FALSE,ycompress=FALSE)
+sink()
+
+# Test model fit  USE MODEL THAT’S BEEN CREATED NOW ON THE TEST SET TO GENERATE PREDICTIONS AND CALCULATE PREDICTED RECOVERIES FOR EACH RECORD OF THE TRAINING SET
+PredictRpartOut<-predict(rpart.fit,newdata=gltdTest)
+ExpectedRR<-gltdTest$Expected_Recoveries / gltdTest$Exposures
+PredictedRR<-PredictRpartOut
+PredictedRecoveries<-PredictRpartOut * gltdTest$Exposures
+Model1_1Predictions<-cbind(gltdTest,ExpectedRR,PredictedRR,PredictedRecoveries)
+write.csv(Model1_1Predictions ,file="C:/Users/mkopinsky/Documents/r/gltd/Model1_21_D_1_Predictions.csv")
+
+
+MSE_E<- sum((Model1_1Predictions$Expected_Recoveries-Model1_1Predictions$Actual_Recoveries)^2) / nrow(Model1_1Predictions)
+MSE_P<- sum((Model1_1Predictions$PredictedRR * gltdTest$Exposures - Model1_1Predictions$Actual_Recoveries)^2) / nrow(Model1_1Predictions)
+MSE_E
+MSE_P
+
+
